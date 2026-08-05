@@ -1,0 +1,38 @@
+# Secrets — never commit
+.env
+*.key
+credentials.json
+token.json
+
+# Internal working notes — kept locally, not published
+CLAUDE.md
+PLAN.md
+NOTES.md
+
+# Third-party material: the project brief belongs to Mercurial Minds
+docs/brief/
+
+# ATS database and generated artefacts
+*.db
+*.sqlite3
+data/ats.db
+out/
+*.ics
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
