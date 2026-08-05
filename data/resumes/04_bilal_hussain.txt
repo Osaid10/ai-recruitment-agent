@@ -1,0 +1,30 @@
+Bilal Hussain
+bilal.hussain@example.com | +92 321 7789043 | Karachi, Pakistan
+
+PROFILE
+Python developer focused on data pipelines and automation. Three years of
+professional experience, most of it in batch processing rather than services.
+
+SKILLS
+Python, pandas, NumPy, Airflow, SQL, BigQuery, bash, Git
+
+EXPERIENCE
+
+Data Engineer - Afiniti
+Sep 2023 - Present
+- Build and maintain Airflow DAGs that move call-centre data into BigQuery.
+- Wrote the deduplication step that cut the daily load from 90 minutes to 35.
+- Handle schema changes from upstream teams, mostly by fixing things after
+  they break.
+
+Junior Data Engineer - Contour Software
+Oct 2022 - Aug 2023
+- Wrote pandas transformation scripts for reporting.
+- Some SQL work against SQL Server for finance reports.
+
+EDUCATION
+BS Software Engineering, NED University of Engineering and Technology, 2022
+
+NOTES
+Have not built a public-facing API in a professional setting. Built a small
+Flask service for a side project that scrapes and serves cricket statistics.

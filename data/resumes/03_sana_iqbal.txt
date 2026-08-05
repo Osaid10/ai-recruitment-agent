@@ -1,0 +1,45 @@
+Sana Iqbal
+sana.iqbal@example.com | +92 300 4471182 | Lahore, Pakistan
+github.com/sanaiqbal
+
+SUMMARY
+Backend engineer with four and a half years building Python services for
+logistics and fintech products. Comfortable owning a service end to end, from
+schema design through to on-call.
+
+TECHNICAL SKILLS
+Python, Django, Flask, PostgreSQL, Redis, REST APIs, Celery, Docker, Git,
+pytest, Linux
+
+EXPERIENCE
+
+Backend Engineer - Trukkr
+Aug 2023 - Present
+- Own the shipment tracking service: a Django/PostgreSQL API handling around
+  40,000 events a day from carrier webhooks.
+- Rewrote the carrier reconciliation job that had been timing out nightly.
+  Moved it from a single query to batched Celery tasks; runtime went from
+  ~50 minutes to under 4.
+- Added request-level tracing after a week where we could not explain a latency
+  spike. It has since caught three regressions before release.
+- On the on-call rotation. Wrote the runbook the rest of the team now uses.
+
+Software Engineer - Bazaar Technologies
+Feb 2022 - Jul 2023
+- Built REST endpoints for the merchant inventory service in Flask.
+- Migrated a set of raw SQL reports onto indexed materialised views after
+  profiling showed three of them accounted for most of the read load.
+- Set up the pytest suite for the team's services; coverage went from nothing
+  to roughly 60% over two quarters.
+
+Junior Developer - Systems Limited
+Jul 2021 - Jan 2022
+- Maintained internal Python tooling and a small Flask admin panel.
+- First real exposure to code review and to writing tests.
+
+EDUCATION
+BS Computer Science, University of Engineering and Technology Lahore, 2021
+
+OTHER
+- Wrote an internal guide on writing PostgreSQL queries that stay fast as
+  tables grow. Now part of onboarding.

@@ -1,0 +1,130 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 2252 >>
+stream
+BT
+/F1 10 Tf
+13 TL
+1 0 0 1 54 738 Tm
+(Ahmed Nadeem) Tj
+T*
+(ahmed.nadeem@example.com | +92 300 1122334 | Lahore, Pakistan) Tj
+T*
+(github.com/ahmednadeem) Tj
+T*
+() Tj
+T*
+(SUMMARY) Tj
+T*
+(Senior backend engineer, seven years building Python services that other teams) Tj
+T*
+(depend on. Most recently responsible for the payments API at a company where) Tj
+T*
+(downtime is measured in lost transactions.) Tj
+T*
+() Tj
+T*
+(TECHNICAL SKILLS) Tj
+T*
+(Python, FastAPI, Django, PostgreSQL, SQL, REST API design, Redis, Docker,) Tj
+T*
+(Kubernetes, AWS \(EKS, RDS, S3, Lambda\), Terraform, CI/CD, GitHub Actions,) Tj
+T*
+(pytest, OpenTelemetry, Grafana) Tj
+T*
+() Tj
+T*
+(EXPERIENCE) Tj
+T*
+() Tj
+T*
+(Senior Software Engineer - Safepay) Tj
+T*
+(Mar 2022 - Present) Tj
+T*
+(- Own the payments API: FastAPI on PostgreSQL, roughly 1.2M requests a day.) Tj
+T*
+(- Led the move from a monolith to four services over nine months. Did it with) Tj
+T*
+(  the strangler pattern so there was never a big-bang cutover.) Tj
+T*
+(- Reduced p99 latency on the authorisation endpoint from 840ms to 190ms by) Tj
+T*
+(  replacing an N+1 query pattern and adding two composite indexes.) Tj
+T*
+(- Designed the idempotency layer that stopped duplicate charges. This was the) Tj
+T*
+(  single most common support ticket before, and is now roughly zero.) Tj
+T*
+(- Mentor two mid-level engineers and run the weekly design review.) Tj
+T*
+() Tj
+T*
+(Software Engineer - Careem) Tj
+T*
+(Jun 2019 - Feb 2022) Tj
+T*
+(- Built REST services in Python for the driver-earnings platform.) Tj
+T*
+(- Migrated batch reporting from nightly cron scripts onto Airflow, which cut) Tj
+T*
+(  the reporting delay from 24 hours to under 1.) Tj
+T*
+(- Introduced contract tests between our service and two downstream consumers) Tj
+T*
+(  after a breaking change caused a Friday incident.) Tj
+T*
+() Tj
+T*
+(Software Engineer - Systems Limited) Tj
+T*
+(Aug 2018 - May 2019) Tj
+T*
+(- Django and PostgreSQL work on an enterprise inventory product.) Tj
+T*
+() Tj
+T*
+(EDUCATION) Tj
+T*
+(BS Computer Science, FAST National University, 2018) Tj
+T*
+() Tj
+T*
+(OTHER) Tj
+T*
+(- Speaker, Python Pakistan meetup 2024: "Idempotency is a design problem".) Tj
+T*
+(- Maintainer of a small open-source library for Postgres advisory locks.) Tj
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Title (Ahmed Nadeem - Resume) >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000002545 00000 n 
+0000002642 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R /Info 6 0 R >>
+startxref
+2694
+%%EOF

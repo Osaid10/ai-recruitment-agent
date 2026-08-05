@@ -1,0 +1,113 @@
+Interview: Senior Python Engineer - Round 1 (Technical + Role Fit)
+Date: 12 August 2026, 45 minutes
+Panel: Ayesha Raza (Engineering Manager), Daniyal Ahmed (Staff Engineer)
+Candidate: Zainab Qureshi
+
+---
+
+Ayesha: Thanks for making the time. Let's start with the scheduling service you
+own now. Walk us through what it actually does.
+
+Candidate: It handles appointment booking for the telehealth product. A patient
+picks a doctor, sees available slots, books one. Sounds simple, but the
+availability calculation is the hard part, because a doctor's availability is a
+function of their working hours, their existing bookings, their leave, and the
+clinic's rules, and all of that changes constantly. It's FastAPI on Postgres,
+about 200,000 bookings a month.
+
+Daniyal: You mentioned in your CV that you took p95 on the availability endpoint
+from 1.9 seconds to 210 milliseconds. What was the actual problem?
+
+Candidate: It was an N+1 in disguise. For each candidate slot in the requested
+window we were running a query to check whether it collided with an existing
+booking. For a two-week window at fifteen-minute granularity that's several
+hundred queries per request. I replaced it with one query that pulls all the
+bookings in the window as a range, and then did the collision check in memory.
+The index was the other half of it - we had an index on doctor_id but not on
+(doctor_id, starts_at), so the range scan was reading far more rows than it
+needed.
+
+Daniyal: Did you consider caching instead?
+
+Candidate: I did, and I decided against it, at least initially. Availability
+changes every time anyone books, so the invalidation would have been the hard
+part, and I'd rather not add a cache to hide a query I hadn't understood yet.
+Once the query was fast the cache wasn't worth the complexity. If we grow ten
+times I'd revisit it, and at that point I'd probably cache the doctor's working
+pattern, which changes rarely, rather than the computed availability.
+
+Ayesha: Tell us about the database migration - splitting the shared database
+into per-service schemas. That's the kind of project that goes badly.
+
+Candidate: It does. We ran it over about six weeks. The approach was dual
+writing. First we created the new schema and started writing to both, with the
+old one still the source of truth. Then we backfilled history and wrote a
+reconciliation job that compared the two and alerted on any drift. We let that
+run for about ten days until the drift was consistently zero. Then we flipped
+reads over one endpoint at a time, and only after all of them were on the new
+schema for a week did we stop writing to the old one.
+
+Daniyal: Did anything go wrong?
+
+Candidate: Yes. The reconciliation job found a class of mismatch we hadn't
+expected, around appointments that were cancelled and rebooked in the same
+transaction. The old code was relying on an implicit ordering that didn't hold
+in the new schema. It took about three days to find, and honestly we only found
+it because of the reconciliation job. If we'd done a straight cutover we'd have
+shipped a data bug and not known for weeks.
+
+Ayesha: You've got two mid-level engineers reporting into your design review.
+How do you handle it when someone brings you a design you think is wrong?
+
+Candidate: I try to ask what problem it solves before I say anything about the
+design, because usually if I disagree it's because I've misunderstood the
+constraint. If I still disagree after that, I'll say so directly and say why,
+but I try to make it about the tradeoff rather than about the design being
+wrong. And if it's reversible I'd usually rather let them ship it and see. The
+ones I push back hard on are the decisions that are expensive to undo - schema
+choices, public API shapes.
+
+Daniyal: Let's talk about the AWS side. What have you actually run in production?
+
+Candidate: ECS for services, RDS for Postgres, S3 for stored documents. I've
+written the Terraform for all of that. I have not run Kubernetes in production -
+we looked at EKS and decided ECS was enough for our size. I've used Kubernetes
+in a previous side project but I wouldn't claim production depth there.
+
+Ayesha: You took a break between 2023 and 2024. Anything you'd want to tell us
+about coming back?
+
+Candidate: It was family caregiving, so it was a full stop rather than a
+sabbatical. I kept the open-source library maintained through it, mostly because
+it was a couple of hours a week and it kept me current. Coming back, the first
+month was slower than I expected - not the code, the context. Learning a new
+codebase and a new domain at the same time. After that it was fine.
+
+Daniyal: One more. How do you decide what to monitor?
+
+Candidate: I start from what a user would notice. For the booking service that's
+"can I see slots" and "did my booking go through", so those become the two SLOs,
+and everything else is diagnostic. I'm wary of alerting on CPU or memory, because
+those page you for things that aren't user-visible and people learn to ignore
+them. What I have not done well is error budgets - we track the SLOs but we don't
+really use them to make release decisions, and I think we should.
+
+Ayesha: Anything you want to ask us?
+
+Candidate: What does on-call look like here, and who owns the services out of
+hours? And separately - the JD mentions taking data science models to production.
+Is that a real part of the job or aspirational? I ask because I've handed models
+off to a platform team before and I've been on the receiving end, and they're
+very different jobs.
+
+Ayesha: Fair question. It's real, it's about a quarter of the work.
+
+Candidate: Then I'd want to know how the models arrive - as a notebook, as a
+container, as something in between. That difference is most of the effort.
+
+Daniyal: That's the right question to ask. We'll follow up.
+
+--- END OF TRANSCRIPT ---
+Note: Candidate was not asked about Kubernetes depth beyond the one exchange
+above. Panel did not get to the mentoring scenario questions or the incident
+response question due to time.

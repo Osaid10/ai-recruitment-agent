@@ -1,0 +1,48 @@
+Zainab Qureshi
+zainab.qureshi@example.com | +92 345 1120934 | Lahore, Pakistan
+
+SUMMARY
+Backend engineer, six years of professional experience across health-tech and
+e-commerce. Took eighteen months away from full-time work between 2023 and
+2024; kept building during that period and returned in mid-2024.
+
+TECHNICAL SKILLS
+Python, FastAPI, PostgreSQL, SQLAlchemy, REST API design, Docker, AWS (ECS,
+RDS, S3), Terraform, CI/CD with GitHub Actions, pytest, Grafana
+
+EXPERIENCE
+
+Senior Backend Engineer - Sehat Kahani
+Sep 2024 - Present
+- Own the appointment and scheduling service. FastAPI on PostgreSQL, serving
+  around 200,000 bookings a month.
+- Led the migration from a single shared database to per-service schemas. Ran
+  it over six weeks with no scheduled downtime by dual-writing first.
+- Cut p95 latency on the availability endpoint from 1.9s to 210ms, mostly by
+  replacing a per-slot query with one indexed range query.
+- Mentor two mid-level engineers; I run our weekly design review.
+
+Career break
+Mar 2023 - Aug 2024
+- Family caregiving. During this period I maintained an open-source FastAPI
+  extension for request-scoped database sessions (roughly 400 stars) and took
+  a distributed systems course.
+
+Backend Engineer - Daraz
+Jan 2021 - Feb 2023
+- Built and owned the seller payout service in Python and PostgreSQL.
+- Introduced GitHub Actions CI for the team; deploys went from manual and
+  fortnightly to automated and daily.
+- Containerised four legacy services and moved them onto AWS ECS.
+
+Software Engineer - Techlogix
+Aug 2019 - Dec 2020
+- REST API work in Python and Django for enterprise clients.
+- Wrote the integration test suite for the largest of those clients.
+
+EDUCATION
+BS Computer Science, Lahore University of Management Sciences, 2019
+
+OPEN SOURCE
+- fastapi-scoped-session - maintainer since 2023.
+- Occasional contributor to SQLAlchemy documentation.

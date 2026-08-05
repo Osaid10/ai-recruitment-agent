@@ -1,0 +1,103 @@
+Interview: Senior Python Engineer - Round 1 (Technical + Role Fit)
+Date: 12 August 2026, 45 minutes
+Panel: Ayesha Raza (Engineering Manager), Daniyal Ahmed (Staff Engineer)
+Candidate: Ahmed Nadeem
+
+---
+
+Ayesha: Let's start with the idempotency work you mentioned on your CV. What was
+the problem?
+
+Candidate: Duplicate charges. A customer's app would retry a payment request on
+a timeout, and we'd process it twice. It was our single biggest support category.
+
+Daniyal: How did you fix it?
+
+Candidate: Idempotency keys. The client sends a key with the request, we store it
+with the result, and if we see the same key again we return the stored result
+instead of processing again.
+
+Daniyal: What's the tricky part of that?
+
+Candidate: Making sure the key and the charge are written atomically. If you
+write the key first and then the charge fails, you've locked out a legitimate
+retry. We put them in the same transaction.
+
+Daniyal: What about two concurrent requests with the same key arriving at once?
+
+Candidate: We use a unique constraint on the key, so the second one fails to
+insert and we return the first result.
+
+Daniyal: What if the first is still in flight and hasn't got a result yet?
+
+Candidate: Then... I think the second one would get a conflict error and the
+client would retry. I'd have to look at the code to be sure. It's been a while
+since I was in that part of the system.
+
+Ayesha: The monolith-to-services migration. How long did it take and what was
+the approach?
+
+Candidate: About nine months. Strangler pattern - we put a routing layer in
+front and moved endpoints across one at a time.
+
+Ayesha: What went wrong?
+
+Candidate: Honestly it went pretty smoothly. The routing layer meant we could
+move things gradually and roll back easily. I'd say the hardest part was
+convincing people it was worth doing.
+
+Ayesha: Nothing broke at all?
+
+Candidate: There were the usual small things. Nothing I'd call a major incident.
+
+Daniyal: You listed Kubernetes and EKS. What do you run on it?
+
+Candidate: The services run on EKS. I wrote the Helm charts and the deployment
+pipeline. Day to day I'm not in the cluster much - we have a platform team who
+handle the infrastructure side.
+
+Daniyal: If a pod is in CrashLoopBackOff, what do you do?
+
+Candidate: Check the logs with kubectl logs, look at the events with describe.
+Usually it's a config or a missing secret.
+
+Daniyal: And if the logs are empty?
+
+Candidate: Then it's failing before the app starts. Could be the image, could be
+the command. I'd check the previous container's logs with --previous.
+
+Ayesha: You mentor two engineers. Tell us about a time that was difficult.
+
+Candidate: One of them was writing very long functions and I kept flagging it in
+review. Eventually I sat down with them and we refactored one together, and it
+clicked.
+
+Ayesha: What made it click?
+
+Candidate: I think seeing it done rather than being told.
+
+Ayesha: How do you know it stuck?
+
+Candidate: Their reviews got shorter.
+
+Daniyal: The p99 latency work - 840ms to 190ms. What did you measure first?
+
+Candidate: We had traces, so I looked at the span breakdown and the database
+time was dominant. From there it was the N+1 and the missing indexes.
+
+Daniyal: How did you verify the indexes were the right ones?
+
+Candidate: EXPLAIN ANALYZE before and after.
+
+Daniyal: Any downside to adding them?
+
+Candidate: Write cost, mostly. The tables are read-heavy so it was a clear win.
+
+Ayesha: Questions for us?
+
+Candidate: What does the team structure look like, and what's the tech stack
+roadmap for the next year?
+
+--- END OF TRANSCRIPT ---
+Note: Panel ran out of time before the system design exercise. Mentoring and
+incident-response questions were only partially covered.

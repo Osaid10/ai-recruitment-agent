@@ -1,0 +1,42 @@
+{
+  "id": "job_seniorpy",
+  "title": "Senior Python Engineer",
+  "department": "Platform Engineering",
+  "location": "Lahore, Pakistan (hybrid)",
+  "employment_type": "Full-time",
+  "summary": "Build and own the backend services behind our data platform. You will design APIs used by every other team, keep them fast and boring, and mentor two mid-level engineers.",
+  "responsibilities": [
+    "Design and ship production Python services that other teams depend on.",
+    "Own reliability for those services: monitoring, on-call, and post-incident follow-up.",
+    "Model and query relational data at a scale where query plans matter.",
+    "Review code and mentor two mid-level engineers.",
+    "Work with the data science team to take models from notebook to production."
+  ],
+  "must_haves": [
+    { "skill": "Python", "min_years": 4, "weight": 2.0 },
+    { "skill": "SQL", "min_years": 3, "weight": 1.5 },
+    { "skill": "REST", "min_years": 2, "weight": 1.0 }
+  ],
+  "nice_to_haves": [
+    { "skill": "Docker", "weight": 1.0 },
+    { "skill": "AWS", "weight": 1.0 },
+    { "skill": "Kubernetes", "weight": 0.5 },
+    { "skill": "FastAPI", "weight": 1.0 },
+    { "skill": "CI/CD", "weight": 0.5 },
+    { "skill": "Machine Learning", "weight": 0.5 }
+  ],
+  "min_years_experience": 4,
+  "rubric": {
+    "skills": 0.4,
+    "experience": 0.3,
+    "impact": 0.2,
+    "communication": 0.1
+  },
+  "shortlist_size": 4,
+  "shortlist_threshold": 60.0,
+  "interview_minutes": 45,
+  "interview_panel": [
+    { "name": "Ayesha Raza", "email": "ayesha.raza@example.com", "role": "Engineering Manager" },
+    { "name": "Daniyal Ahmed", "email": "daniyal.ahmed@example.com", "role": "Staff Engineer" }
+  ]
+}
