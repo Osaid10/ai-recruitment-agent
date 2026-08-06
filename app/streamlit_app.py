@@ -4,10 +4,10 @@ Run from the repo root:
 
     streamlit run app/streamlit_app.py
 
-The dashboard exists to make the agent's reasoning visible: not just who was
-ranked where, but which evidence drove each score, who was cut and why, and
-where the human gates are. The two approval controls here are the only way to
-move a candidate forward.
+The screen exists to make the agent's reasoning inspectable: not just who ranked
+where, but which evidence drove each score, who was cut and why, and where a
+human has to act. The two approval controls here are the only way a candidate
+moves forward.
 """
 
 from __future__ import annotations
@@ -23,17 +23,42 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from recruiter.config import Settings  # noqa: E402
-from recruiter.models import HumanAction, RunReport, StageStatus  # noqa: E402
+from recruiter.models import HumanAction, Rating, RunReport, StageStatus  # noqa: E402
 from recruiter.pipeline import JobSpecError, RecruitmentAgent, load_job  # noqa: E402
 from recruiter.recommend import record_decision, shortlist_is_approved  # noqa: E402
 
-st.set_page_config(page_title="AI Recruitment Agent", page_icon="::", layout="wide")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ui  # noqa: E402
 
-STATUS_ICON = {
-    StageStatus.OK: ":white_check_mark:",
-    StageStatus.FAILED: ":x:",
-    StageStatus.SKIPPED: ":heavy_minus_sign:",
-    StageStatus.NEEDS_HUMAN: ":warning:",
+st.set_page_config(
+    page_title="AI Recruitment Agent",
+    page_icon="::",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+ui.inject_css()
+
+STAGE_MARK = {
+    StageStatus.OK: ("good", "done"),
+    StageStatus.FAILED: ("critical", "failed"),
+    StageStatus.SKIPPED: ("neutral", "skipped"),
+    StageStatus.NEEDS_HUMAN: ("warning", "needs a human"),
+}
+
+RATING_TONE = {
+    Rating.STRONG: "good",
+    Rating.ADEQUATE: "serious",
+    Rating.WEAK: "critical",
+    Rating.NOT_ASSESSED: "neutral",
+}
+
+VERDICT_TONE = {
+    "strong_hire": "good",
+    "hire": "good",
+    "lean_hire": "serious",
+    "lean_no_hire": "warning",
+    "no_hire": "critical",
+    "insufficient_evidence": "neutral",
 }
 
 
@@ -44,11 +69,13 @@ def get_agent() -> RecruitmentAgent:
 
 def show_report(report: RunReport) -> None:
     for result in report.results:
-        st.write(
-            f"{STATUS_ICON[result.status]} **{result.stage.value}** — {result.detail}"
+        tone, word = STAGE_MARK[result.status]
+        st.markdown(
+            ui.pill(f"{result.stage.value} · {word}", tone) + f"  {result.detail}",
+            unsafe_allow_html=True,
         )
     if report.awaiting:
-        st.warning(f"Waiting on: {report.awaiting}")
+        ui.gate("Waiting on a person", report.awaiting)
 
 
 # --------------------------------------------------------------------------
@@ -58,7 +85,7 @@ def show_report(report: RunReport) -> None:
 agent = get_agent()
 settings = agent.settings
 
-st.sidebar.title("AI Recruitment Agent")
+st.sidebar.markdown("### AI Recruitment Agent")
 st.sidebar.caption("Screens the top of the funnel. A human decides.")
 
 if agent.llm.available:
@@ -66,30 +93,32 @@ if agent.llm.available:
 else:
     st.sidebar.warning(
         "No model configured — deterministic ranking only.\n\n"
-        "Add `GROQ_API_KEY` to `.env` for fit assessment, tailored questions, "
-        "interview summaries and recommendations."
+        "Hard requirements, scoring against declared criteria and both human "
+        "gates all still work. Fit assessment, tailored questions, interview "
+        "summaries and recommendations will report themselves unavailable "
+        "rather than inventing output."
     )
 
 st.sidebar.divider()
-st.sidebar.subheader("Run the pipeline")
+st.sidebar.markdown("**Run the pipeline**")
 
 job_files = sorted((ROOT / "data" / "jobs").glob("*.json"))
 job_choice = st.sidebar.selectbox(
-    "Job requisition", job_files, format_func=lambda p: p.name, index=0 if job_files else None
+    "Job requisition", job_files, format_func=lambda p: p.stem.replace("_", " ")
 )
 resume_dir = st.sidebar.text_input("Resume folder", value=str(ROOT / "data" / "resumes"))
 transcript_dir = st.sidebar.text_input(
     "Transcript folder (optional)", value=str(ROOT / "data" / "interviews")
 )
 
-if st.sidebar.button("Ingest and rank", type="primary", use_container_width=True):
+if st.sidebar.button("Ingest and rank", type="primary", width="stretch"):
     if not job_choice:
         st.sidebar.error("No job requisition found in data/jobs/")
     else:
         try:
             job = agent.register_job(load_job(job_choice))
             report = RunReport(job_id=job.id)
-            with st.spinner("Reading resumes and ranking..."):
+            with st.spinner("Reading resumes and ranking…"):
                 agent.ingest(job, resume_dir, report)
                 agent.rank(job, report)
             st.session_state["report"] = report.model_dump()
@@ -98,16 +127,23 @@ if st.sidebar.button("Ingest and rank", type="primary", use_container_width=True
             st.sidebar.error(str(exc))
 
 st.sidebar.divider()
+
 jobs = agent.store.list_jobs()
 if jobs:
-    selected = st.sidebar.selectbox(
+    def _progress(job) -> tuple[int, int, int]:
+        return (
+            len(agent.store.list_recommendations(job.id)),
+            len(agent.store.list_interviews(job.id)),
+            len(agent.store.list_candidates(job.id)),
+        )
+
+    jobs = sorted(jobs, key=_progress, reverse=True)
+    job_id = st.sidebar.selectbox(
         "Viewing",
         [j.id for j in jobs],
         format_func=lambda jid: next(j.title for j in jobs if j.id == jid),
         index=0,
     )
-    st.session_state["job_id"] = st.session_state.get("job_id") or selected
-    job_id = selected
 else:
     job_id = ""
 
@@ -116,7 +152,13 @@ else:
 # --------------------------------------------------------------------------
 
 if not job_id:
+    ui.eyebrow("Nothing loaded")
     st.title("AI Recruitment Agent")
+    ui.meta(
+        "Reads resumes, ranks candidates against a role, books interviews, drafts "
+        "tailored questions, summarises the interviews and produces a "
+        "recommendation — then stops, because the hiring decision is a person's."
+    )
     st.info(
         "Nothing in the database yet. Pick a job requisition in the sidebar and "
         "press **Ingest and rank** to start."
@@ -127,19 +169,34 @@ job = agent.store.get_job(job_id)
 candidates = {c.id: c for c in agent.store.list_candidates(job_id)}
 shortlist = agent.store.get_shortlist(job_id)
 approved = shortlist_is_approved(agent.store, job_id)
+interviews = agent.store.list_interviews(job_id)
+recommendations = agent.store.list_recommendations(job_id)
 
+ui.eyebrow(f"{job.department or 'Open role'} · {job.employment_type}")
 st.title(job.title)
-st.caption(
-    f"{job.department} · {job.location} · {job.employment_type} · "
-    f"must have: {', '.join(r.skill for r in job.must_haves)}"
+ui.meta(
+    f"{job.location}  ·  must have: "
+    f"{', '.join(r.skill for r in job.must_haves) or 'none declared'}"
+    f"  ·  shortlist of {job.shortlist_size} at {job.shortlist_threshold:g}+"
 )
 
-cols = st.columns(5)
-cols[0].metric("Candidates", len(candidates))
-cols[1].metric("Shortlisted", len(shortlist.ranked) if shortlist else 0)
-cols[2].metric("Interviews", len(agent.store.list_interviews(job_id)))
-cols[3].metric("Recommendations", len(agent.store.list_recommendations(job_id)))
-cols[4].metric("Shortlist approved", "Yes" if approved else "No")
+ui.stat_tiles(
+    [
+        ("Candidates", str(len(candidates)), "resumes ingested"),
+        (
+            "Shortlisted",
+            str(len(shortlist.ranked) if shortlist else 0),
+            f"{len(shortlist.cut) if shortlist else 0} not advanced",
+        ),
+        ("Interviews", str(len(interviews)), "slots booked"),
+        ("Recommendations", str(len(recommendations)), "advisory only"),
+        (
+            "Shortlist approved",
+            "Yes" if approved else "No",
+            shortlist.approved_by if approved and shortlist else "blocks scheduling",
+        ),
+    ]
+)
 
 tabs = st.tabs(
     ["Ranking", "Human gate", "Interviews", "Questions", "Recommendations", "Audit trail"]
@@ -155,79 +212,124 @@ with tabs[0]:
     if not shortlist:
         st.info("Nothing ranked yet.")
     else:
-        st.subheader("Shortlisted")
+        ui.eyebrow(f"Shortlisted — {len(shortlist.ranked)}")
+        ui.note(
+            "Hard requirements are scored by rules, not by the model. The model "
+            "scores only the rubric dimensions, from redacted text, and every "
+            "score has to quote the resume — a quote that cannot be found in the "
+            "source is discarded and the score zeroed."
+        )
+        st.write("")
+
         for score in shortlist.ranked:
             candidate = candidates.get(score.candidate_id)
             name = candidate.display_name if candidate else score.candidate_id
-            with st.expander(f"**{name}** — {score.total_score:.1f}/100", expanded=False):
-                a, b, c = st.columns(3)
-                a.metric("Total", f"{score.total_score:.1f}")
-                b.metric("Rules", f"{score.gate_score:.1f}")
-                c.metric("Model fit", f"{score.fit_score:.1f}" if score.llm_available else "n/a")
+            with st.expander(f"**{name}** · {score.total_score:.0f}/100", expanded=False):
+                left, right = st.columns([1, 2])
 
-                st.markdown("**Hard requirements**")
-                for gate in score.hard_gates:
-                    st.write(
-                        f"{':white_check_mark:' if gate.met else ':x:'} "
-                        f"{gate.requirement} — {gate.detail}"
+                with left:
+                    ui.eyebrow("Total")
+                    ui.headline_score(score.total_score)
+                    st.write("")
+                    ui.meters(
+                        [
+                            ("Rules", score.gate_score, 100),
+                            ("Model fit", score.fit_score, 100),
+                        ]
+                    )
+                    ui.note(
+                        "Rules and model blended 55/45."
+                        if score.llm_available
+                        else "No model — the rules score is the whole score."
                     )
 
+                with right:
+                    ui.eyebrow("Hard requirements")
+                    ui.pills(
+                        [
+                            (g.requirement.replace("must-have: ", ""), "good" if g.met else "critical")
+                            for g in score.hard_gates
+                        ]
+                    )
+                    for g in score.hard_gates:
+                        if not g.met:
+                            ui.note(f"✗ {g.requirement} — {g.detail}")
+
                 if score.dimensions and score.llm_available:
-                    st.markdown("**Rubric dimensions** (scored on redacted text)")
+                    st.write("")
+                    ui.eyebrow("Rubric dimensions — scored on redacted text")
+                    ui.meters([(d.dimension, d.score, 10) for d in score.dimensions])
                     for dim in score.dimensions:
-                        st.write(f"**{dim.dimension}** — {dim.score:.1f}/10")
-                        st.caption(f"evidence: “{dim.evidence}”")
+                        ui.quote(dim.evidence, f"{dim.dimension} — evidence")
 
                 if score.strengths:
-                    st.markdown("**Strengths**")
+                    ui.eyebrow("Strengths")
                     for item in score.strengths:
-                        st.write(f"- {item}")
+                        st.markdown(f"- {item}")
                 if score.concerns:
-                    st.markdown("**Concerns**")
+                    ui.eyebrow("Concerns")
                     for item in score.concerns:
-                        st.write(f"- {item}")
+                        st.markdown(f"- {item}")
                 if score.flags:
-                    st.markdown("**Flags for a human**")
-                    for flag in score.flags:
-                        st.warning(flag)
+                    ui.eyebrow("Flagged for a human")
+                    for item in score.flags:
+                        ui.flag(item)
 
-                st.caption(
+                ui.note(
                     f"Scored on {'redacted' if score.redacted else 'UNREDACTED'} text · "
                     f"{score.reason}"
                 )
 
-        st.subheader("Not shortlisted")
-        st.caption(
+        ui.rule()
+        ui.eyebrow(f"Not shortlisted — {len(shortlist.cut)}")
+        ui.note(
             "Nobody here has been rejected. Each row records why they were not "
-            "advanced, and the decision is still a human's."
+            "advanced; the decision is still a person's."
         )
+        st.write("")
+
         for score in shortlist.cut:
             candidate = candidates.get(score.candidate_id)
             name = candidate.display_name if candidate else score.candidate_id
-            with st.expander(f"{name} — {score.total_score:.1f}/100"):
-                st.write(score.reason)
-                for gate in score.hard_gates:
-                    if not gate.met:
-                        st.write(f":x: {gate.requirement} — {gate.detail}")
-                for flag in score.flags:
-                    st.caption(flag)
+            met = sum(1 for g in score.hard_gates if g.met)
+            tone = "warning" if score.all_gates_met else "neutral"
+            with st.expander(f"{name} · {score.total_score:.0f}/100"):
+                ui.pills([(f"{met}/{len(score.hard_gates)} requirements met", tone)])
+                ui.meta(score.reason)
+                st.write("")
+                for gate_result in score.hard_gates:
+                    if not gate_result.met:
+                        ui.note(f"✗ {gate_result.requirement} — {gate_result.detail}")
+                for item in score.flags:
+                    ui.flag(item)
 
 # -- Human gate ------------------------------------------------------------
 
 with tabs[1]:
-    st.subheader("Gate 1 — approve the shortlist")
-    st.caption(
+    ui.eyebrow("Gate 1 of 2")
+    st.markdown("#### Approve the shortlist")
+    ui.note(
         "Nothing downstream runs until a named person approves. Scheduling and "
-        "question generation refuse to execute without this."
+        "question generation refuse to execute without this — the guard raises, "
+        "it does not warn."
     )
+    st.write("")
 
     if approved:
-        st.success(
-            f"Approved by **{shortlist.approved_by}** at {shortlist.approved_at}."
+        ui.gate(
+            "Approved",
+            f"{shortlist.approved_by} approved this shortlist at {shortlist.approved_at}. "
+            "Scheduling is unlocked.",
+            done=True,
         )
     elif not shortlist or not shortlist.ranked:
         st.info("Rank some candidates first.")
     else:
+        ui.gate(
+            "Awaiting approval",
+            f"{len(shortlist.ranked)} candidates are waiting. Nobody has been "
+            "contacted and nothing has been scheduled.",
+        )
         approver = st.text_input("Your name", key="approver")
         notes = st.text_area("Notes (optional)", key="approval_notes")
         if st.button("Approve shortlist", type="primary"):
@@ -238,8 +340,9 @@ with tabs[1]:
                 st.success(f"{count} candidates approved. Scheduling is unlocked.")
                 st.rerun()
 
-    st.divider()
-    st.subheader("Run the rest of the pipeline")
+    ui.rule()
+    st.markdown("#### Run the rest of the pipeline")
+
     if not approved:
         st.info("Blocked until the shortlist is approved.")
     else:
@@ -249,7 +352,7 @@ with tabs[1]:
             start = (datetime.now() + timedelta(days=1)).replace(
                 hour=9, minute=0, second=0, microsecond=0
             )
-            with st.spinner("Working..."):
+            with st.spinner("Working…"):
                 agent.questions(job, report)
                 agent.schedule(job, report, window=(start, start + timedelta(days=days)))
                 if transcript_dir and Path(transcript_dir).is_dir():
@@ -260,16 +363,23 @@ with tabs[1]:
 # -- Interviews ------------------------------------------------------------
 
 with tabs[2]:
-    interviews = agent.store.list_interviews(job_id)
     if not interviews:
         st.info("No interviews booked yet.")
+
     for booking in interviews:
         candidate = candidates.get(booking.candidate_id)
         name = candidate.display_name if candidate else booking.candidate_id
-        with st.expander(f"{name} — {booking.slot}"):
-            st.write(f"**Panel:** {', '.join(p.name for p in booking.interviewers)}")
-            st.write(f"**Mode:** {booking.mode} · {booking.location}")
-            st.write(f"**Status:** {booking.status}")
+        with st.expander(f"{name} · {booking.slot}"):
+            ui.pills(
+                [
+                    (booking.status, "good" if booking.status == "completed" else "neutral"),
+                    (booking.mode, "neutral"),
+                ]
+            )
+            ui.meta(
+                f"Panel: {', '.join(p.name for p in booking.interviewers)} · {booking.location}"
+            )
+
             if booking.ics_path and Path(booking.ics_path).is_file():
                 st.download_button(
                     "Download calendar invite (.ics)",
@@ -278,76 +388,98 @@ with tabs[2]:
                     mime="text/calendar",
                     key=f"ics_{booking.id}",
                 )
+
             for summary in agent.store.list_summaries(booking.candidate_id):
-                st.markdown("**Interview summary**")
-                st.write(summary.overall_impression)
+                ui.rule()
+                ui.eyebrow("Interview summary")
+                ui.meta(summary.overall_impression)
+                st.write("")
+                ui.pills(
+                    [
+                        (f"{s.dimension}: {s.rating.value}", RATING_TONE[s.rating])
+                        for s in summary.signals
+                    ]
+                )
                 for signal in summary.signals:
-                    st.write(f"- **{signal.dimension}**: {signal.rating.value}")
                     if signal.evidence:
-                        st.caption(f"  “{signal.evidence}”")
+                        ui.quote(signal.evidence, f"{signal.dimension} — transcript")
                 if summary.concerns:
-                    st.markdown("**Concerns**")
+                    ui.eyebrow("Concerns")
                     for concern in summary.concerns:
-                        st.write(f"- {concern}")
+                        st.markdown(f"- {concern}")
                 if summary.unanswered_questions:
-                    st.markdown("**Not covered**")
+                    ui.eyebrow("Not covered")
                     for item in summary.unanswered_questions:
-                        st.write(f"- {item}")
+                        st.markdown(f"- {item}")
 
 # -- Questions -------------------------------------------------------------
 
 with tabs[3]:
-    if not shortlist or not shortlist.ranked:
-        st.info("Nothing to show yet.")
-    for score in (shortlist.ranked if shortlist else []):
+    any_questions = False
+    for score in shortlist.ranked if shortlist else []:
         question_set = agent.store.get_questions(score.candidate_id, job_id)
         if not question_set:
             continue
+        any_questions = True
         candidate = candidates.get(score.candidate_id)
         name = candidate.display_name if candidate else score.candidate_id
-        with st.expander(f"{name} — {len(question_set.questions)} questions"):
+        with st.expander(f"{name} · {len(question_set.questions)} questions"):
             if not question_set.llm_available:
-                st.caption("Template fallback — no model was available.")
+                ui.note("Template fallback — no model was available.")
             for i, q in enumerate(question_set.questions, start=1):
                 st.markdown(f"**{i}. {q.question}**")
-                st.caption(f"category: {q.category.value}")
+                ui.pills([(q.category.value.replace("_", " "), "neutral")])
                 if q.linked_evidence:
-                    st.caption(f"prompted by: {q.linked_evidence}")
+                    ui.quote(q.linked_evidence, "prompted by")
                 if q.what_good_looks_like:
-                    st.caption(f"a strong answer: {q.what_good_looks_like}")
+                    ui.note(f"A strong answer: {q.what_good_looks_like}")
+                st.write("")
+
+    if not any_questions:
+        st.info("No questions generated yet.")
 
 # -- Recommendations -------------------------------------------------------
 
 with tabs[4]:
-    recommendations = agent.store.list_recommendations(job_id)
+    ui.gate(
+        "These are recommendations, not decisions",
+        "There is no code path in this system that hires or rejects anyone. The "
+        "agent stops here and waits for you.",
+    )
+
     if not recommendations:
         st.info("No recommendations yet.")
-
-    st.warning(
-        "These are recommendations, not decisions. The agent has no code path "
-        "that hires or rejects anyone."
-    )
 
     for rec in recommendations:
         candidate = candidates.get(rec.candidate_id)
         name = candidate.display_name if candidate else rec.candidate_id
-        with st.expander(f"{name} — {rec.verdict.value} ({rec.confidence:.0%} confidence)"):
-            st.write(rec.rationale)
+        tone = VERDICT_TONE.get(rec.verdict.value, "neutral")
+        with st.expander(f"{name} · {rec.verdict.value.replace('_', ' ')}"):
+            ui.pills(
+                [
+                    (rec.verdict.value.replace("_", " "), tone),
+                    (f"confidence {rec.confidence:.0%}", "neutral"),
+                ]
+            )
+            st.write("")
+            ui.meta(rec.rationale)
+            st.write("")
 
             if rec.supporting_evidence:
-                st.markdown("**Supporting evidence**")
+                ui.eyebrow("Supporting evidence")
                 for item in rec.supporting_evidence:
-                    st.write(f"- {item}")
+                    st.markdown(f"- {item}")
 
-            st.markdown("**Evidence against** (always recorded)")
+            ui.eyebrow("Evidence against — always recorded")
             for item in rec.dissenting_signals:
-                st.write(f"- {item}")
+                st.markdown(f"- {item}")
 
             if rec.suggested_next_step:
                 st.info(f"Suggested next step: {rec.suggested_next_step}")
 
-            st.divider()
-            st.markdown("**Gate 2 — your decision**")
+            ui.rule()
+            ui.eyebrow("Gate 2 of 2 — your decision")
+
             decided = [
                 d
                 for d in agent.store.decisions_for_candidate(rec.candidate_id)
@@ -355,9 +487,11 @@ with tabs[4]:
             ]
             if decided:
                 latest = decided[-1]
-                st.success(
-                    f"{latest.decided_by} chose **{latest.action.value}** on "
-                    f"{latest.decided_at}"
+                ui.gate(
+                    f"Decided: {latest.action.value.replace('_', ' ')}",
+                    f"{latest.decided_by} on {latest.decided_at}"
+                    + (f" — {latest.notes}" if latest.notes else ""),
+                    done=True,
                 )
             else:
                 decider = st.text_input("Your name", key=f"decider_{rec.candidate_id}")
@@ -368,23 +502,26 @@ with tabs[4]:
                     key=f"action_{rec.candidate_id}",
                     horizontal=True,
                 )
-                note = st.text_area("Reasoning", key=f"note_{rec.candidate_id}")
+                note_text = st.text_area("Reasoning", key=f"note_{rec.candidate_id}")
                 if st.button("Record decision", key=f"decide_{rec.candidate_id}"):
                     if not decider.strip():
                         st.error("Decisions must name a person.")
                     else:
                         record_decision(
-                            agent.store, rec.candidate_id, job_id, action, decider, note
+                            agent.store, rec.candidate_id, job_id, action, decider, note_text
                         )
                         st.rerun()
 
-# -- Audit -----------------------------------------------------------------
+# -- Audit trail -----------------------------------------------------------
 
 with tabs[5]:
-    st.caption(
-        "Every stage writes a row here: what ran, what it decided, which model, "
+    ui.eyebrow("Append-only")
+    ui.note(
+        "Every stage writes a row here: what ran, what it decided, which model "
         "and when. This is how a decision gets reconstructed months later."
     )
+    st.write("")
+
     rows = agent.store.audit_trail(job_id=job_id)
     if not rows:
         st.info("No audit entries yet.")
@@ -396,11 +533,11 @@ with tabs[5]:
                     "stage": r["stage"],
                     "action": r["action"],
                     "entity": r["entity_id"],
-                    "model": r["model"] or "-",
+                    "model": r["model"] or "—",
                     "detail": str(r["detail"])[:200],
                 }
                 for r in rows
             ],
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )

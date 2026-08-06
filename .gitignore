@@ -8,6 +8,7 @@ token.json
 CLAUDE.md
 PLAN.md
 NOTES.md
+HOW_IT_WORKS.md
 
 # Real CVs from real people. The sample set in data/resumes/ is synthetic and
 # safe to publish; anything dropped here is not. Never commit this folder.
