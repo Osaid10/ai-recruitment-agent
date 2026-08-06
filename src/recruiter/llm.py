@@ -256,6 +256,10 @@ class LLMClient:
                 return str(self._chat.invoke(messages).content).strip()
             except Exception as exc:
                 last_error = exc
+                if _is_daily_quota(exc):
+                    raise LLMUnavailable(
+                        f"daily token quota exhausted: {self._brief(exc)}"
+                    ) from exc
                 log.warning(
                     "LLM text call failed (attempt %d/%d): %s",
                     attempt,
