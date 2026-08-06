@@ -193,7 +193,14 @@ class Candidate(BaseModel):
 
     raw_text: str = ""
     redacted_text: str = ""
+
+    # Two different things, deliberately separated. A parse warning means the
+    # file itself is a problem and a person should look at it. A note records a
+    # correction the pipeline made and handled — worth auditing, not worth
+    # escalating, and flagging every one of them would train reviewers to
+    # ignore the flag that matters.
     parse_warnings: list[str] = Field(default_factory=list)
+    extraction_notes: list[str] = Field(default_factory=list)
     extraction_method: str = "llm"  # "llm" | "heuristic"
 
     @property

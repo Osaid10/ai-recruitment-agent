@@ -45,6 +45,9 @@ class Settings:
     groq_api_key: str = ""
     model: str = "llama-3.3-70b-versatile"
     temperature: float = 0.1
+    # Groq's free tier meters tokens per minute. Requests are paced to stay
+    # under this so stages don't get rate-limited into their fallback paths.
+    tokens_per_minute: int = 12_000
     db_path: Path = ROOT / "data" / "ats.db"
     out_dir: Path = ROOT / "out"
     redact_for_ranking: bool = True
@@ -58,6 +61,7 @@ class Settings:
             groq_api_key=os.environ.get("GROQ_API_KEY", "").strip(),
             model=os.environ.get("RECRUITER_MODEL", "llama-3.3-70b-versatile"),
             temperature=float(os.environ.get("RECRUITER_TEMPERATURE", "0.1")),
+            tokens_per_minute=int(os.environ.get("RECRUITER_TOKENS_PER_MINUTE", "12000")),
             db_path=_resolve(os.environ.get("RECRUITER_DB_PATH", "data/ats.db")),
             out_dir=_resolve(os.environ.get("RECRUITER_OUT_DIR", "out")),
             redact_for_ranking=_as_bool(

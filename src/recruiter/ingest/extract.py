@@ -162,9 +162,14 @@ def extract_profile(
     text: str,
     llm: LLMClient | None = None,
     vocabulary: list[str] | None = None,
-) -> tuple[ExtractedProfile, str, list[str]]:
-    """Return (profile, method, warnings). Falls back to heuristics on any LLM failure."""
+) -> tuple[ExtractedProfile, str, list[str], list[str]]:
+    """Return (profile, method, warnings, notes).
+
+    Warnings mean a human should look at the file. Notes record corrections the
+    pipeline made and handled. Falls back to heuristics on any LLM failure.
+    """
     warnings: list[str] = []
+    notes: list[str] = []
 
     if llm and llm.available:
         try:
@@ -173,21 +178,36 @@ def extract_profile(
                 SYSTEM,
                 USER_TEMPLATE.format(resume=truncate(text)),
             )
-            # The model is unreliable at arithmetic across date ranges; if it
-            # returns nothing, trust the regex sum instead of a zero.
-            if profile.total_years_experience <= 0:
-                computed = heuristic_years(text)
-                if computed > 0:
-                    profile.total_years_experience = computed
-                    warnings.append("years of experience computed from dates, not from the model")
+            # Years of experience is arithmetic over date ranges, not a
+            # judgement, so the deterministic sum wins whenever it finds dates.
+            #
+            # This is not a theoretical preference. Measured against the sample
+            # set, llama-3.3-70b undercounted every candidate by 2.4-3.0 years:
+            # it reads "Present" as its training cutoff rather than today, so
+            # every current role is truncated. That silently failed the
+            # "4+ years" hard gate for three candidates who clearly meet it.
+            computed = heuristic_years(text)
+            if computed > 0:
+                if abs(computed - profile.total_years_experience) >= 1.0:
+                    notes.append(
+                        f"model said {profile.total_years_experience:g}y experience, dates say "
+                        f"{computed:g}y — using the dates"
+                    )
+                profile.total_years_experience = computed
+            elif profile.total_years_experience > 0:
+                # Nothing to check the model against, so this one does need eyes.
+                warnings.append(
+                    "no parseable date ranges — years of experience taken from the model "
+                    "and unverified"
+                )
             if not profile.skills:
                 profile.skills = heuristic_skills(text, vocabulary)
-                warnings.append("skills recovered heuristically — model returned none")
-            return profile, "llm", warnings
+                notes.append("skills recovered heuristically — model returned none")
+            return profile, "llm", warnings, notes
         except LLMUnavailable as exc:
             warnings.append(f"LLM extraction failed, used heuristics instead: {exc}")
 
-    return heuristic_profile(text, vocabulary), "heuristic", warnings
+    return heuristic_profile(text, vocabulary), "heuristic", warnings, notes
 
 
 def build_candidate(
@@ -197,10 +217,10 @@ def build_candidate(
     vocabulary: list[str] | None = None,
 ) -> Candidate:
     """Turn a parsed file into a `Candidate`. Redaction happens later, in ranking."""
-    profile, method, warnings = (
+    profile, method, warnings, notes = (
         extract_profile(parsed.text, llm, vocabulary)
         if parsed.usable
-        else (ExtractedProfile(), "none", ["resume text unusable — nothing extracted"])
+        else (ExtractedProfile(), "none", ["resume text unusable — nothing extracted"], [])
     )
 
     return Candidate(
@@ -218,6 +238,7 @@ def build_candidate(
         total_years_experience=profile.total_years_experience,
         raw_text=parsed.text,
         parse_warnings=[*parsed.warnings, *warnings],
+        extraction_notes=notes,
         extraction_method=method,
     )
 

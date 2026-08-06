@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .evidence import verify
 from .llm import LLMClient, LLMUnavailable, truncate
 from .models import (
     InterviewSummary,
@@ -25,7 +26,19 @@ Rules:
 1. Report only what is in the transcript. If the interview did not cover a
    dimension, rate it `not_assessed` — do not infer it from tone or from what
    the candidate seems like.
-2. Every signal rating needs an `evidence` field quoting the transcript.
+2. **`evidence` must be text copied word-for-word out of the transcript.** It is
+   a quotation, not a description. Copy the candidate's actual words.
+
+   WRONG: "The candidate explained the idempotency layer and how it works."
+   RIGHT: "Idempotency keys. The client sends a key with the request, we store
+           it with the result, and if we see the same key again we return the
+           stored result instead of processing again."
+
+   If you cannot find words in the transcript that support a rating, set that
+   dimension to `not_assessed`. A dimension marked not_assessed is a useful,
+   correct answer. An invented quote is the worst thing you can produce here:
+   quotes are checked against the transcript, and one that is not found is
+   discarded along with the rating built on it.
 3. Record concerns as plainly as strengths. A summary with no concerns is
    almost always an incomplete summary — say so if you genuinely found none.
 4. `unanswered_questions` lists what the panel planned to ask but did not get a
@@ -124,15 +137,24 @@ def summarize_interview(
             summary.interview_id = interview_id
             summary.llm_available = True
 
-            unsupported = [s.dimension for s in summary.signals if not s.evidence.strip()]
+            # Checking that `evidence` is non-empty is not enough: the common
+            # failure is a fluent description that never appears in the
+            # transcript. Verify each quote against the source and discard the
+            # rating when it does not hold up.
+            unsupported: list[str] = []
+            for signal in summary.signals:
+                if signal.rating is Rating.NOT_ASSESSED:
+                    continue
+                supported, reason = verify(signal.evidence, transcript)
+                if not supported:
+                    unsupported.append(f"{signal.dimension} ({reason})")
+                    signal.rating = Rating.NOT_ASSESSED
+                    signal.evidence = f"discarded — {reason}"
+
             if unsupported:
-                for signal in summary.signals:
-                    if not signal.evidence.strip():
-                        signal.rating = Rating.NOT_ASSESSED
-                        signal.evidence = "no supporting quote found in transcript"
                 summary.concerns.append(
-                    "ratings without transcript evidence were downgraded to not_assessed: "
-                    + ", ".join(unsupported)
+                    "ratings whose evidence could not be found in the transcript were "
+                    "downgraded to not_assessed: " + "; ".join(unsupported)
                 )
             return summary
         except LLMUnavailable:

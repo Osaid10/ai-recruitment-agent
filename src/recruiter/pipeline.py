@@ -184,23 +184,31 @@ class RecruitmentAgent:
                     skills_found=len(candidate.skills),
                     years=candidate.total_years_experience,
                     warnings=candidate.parse_warnings,
+                    notes=candidate.extraction_notes,
                 )
                 candidates.append(candidate)
 
+                # Only genuine parse problems escalate. Corrections the pipeline
+                # already handled are audited and reported, not flagged.
                 status = (
                     StageStatus.NEEDS_HUMAN if candidate.parse_warnings else StageStatus.OK
                 )
+                detail = (
+                    f"{path.name} -> {candidate.display_name} "
+                    f"({len(candidate.skills)} skills, "
+                    f"{candidate.total_years_experience:g}y)"
+                )
+                if candidate.parse_warnings:
+                    detail += " | " + "; ".join(candidate.parse_warnings)
+                if candidate.extraction_notes:
+                    detail += " | note: " + "; ".join(candidate.extraction_notes)
+
                 report.add(
                     StageResult(
                         stage=Stage.INGEST,
                         status=status,
                         candidate_id=candidate.id,
-                        detail=(
-                            f"{path.name} -> {candidate.display_name} "
-                            f"({len(candidate.skills)} skills, "
-                            f"{candidate.total_years_experience:g}y)"
-                            + (f" | {'; '.join(candidate.parse_warnings)}" if candidate.parse_warnings else "")
-                        ),
+                        detail=detail,
                     )
                 )
             except Exception as exc:  # a genuinely unexpected failure

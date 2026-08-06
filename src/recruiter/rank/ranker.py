@@ -11,6 +11,7 @@ with a stated reason, and a human decides what happens to them.
 from __future__ import annotations
 
 from ..config import Settings
+from ..evidence import is_explicit_absence, verify
 from ..llm import LLMClient, LLMUnavailable, truncate
 from ..models import (
     Candidate,
@@ -147,16 +148,24 @@ def score_candidate(
             dimensions = fit.dimensions
             strengths = fit.strengths
             concerns = fit.concerns
-            missing_evidence = [d.dimension for d in dimensions if not d.evidence.strip()]
-            if missing_evidence:
+            # A non-empty evidence field is not proof of anything — verify each
+            # quote against the text the model was actually given, and zero any
+            # score that rests on words the resume does not contain.
+            unsupported: list[str] = []
+            for dim in dimensions:
+                if dim.score <= 0 or is_explicit_absence(dim.evidence):
+                    continue  # correctly reporting an absence is not a failure
+                supported, reason = verify(dim.evidence, scoring_text)
+                if not supported:
+                    unsupported.append(f"{dim.dimension} ({reason})")
+                    dim.score = 0.0
+                    dim.evidence = f"discarded — {reason}"
+
+            if unsupported:
                 flags.append(
-                    "scores without evidence, treated as unsupported: "
-                    + ", ".join(missing_evidence)
+                    "scores whose evidence could not be found in the resume were "
+                    "zeroed: " + "; ".join(unsupported)
                 )
-                for dim in dimensions:
-                    if not dim.evidence.strip():
-                        dim.score = 0.0
-                        dim.evidence = "insufficient evidence"
         except LLMUnavailable as exc:
             llm_available = False
             dimensions = _blank_dimensions(job, "LLM assessment unavailable")
