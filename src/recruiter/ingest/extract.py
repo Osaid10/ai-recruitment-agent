@@ -52,6 +52,36 @@ DATE_RANGE_RE = re.compile(
     re.I,
 )
 
+# "Jun - Aug 2024" / "March to September 2023" — both months, one shared year.
+# Common on resumes for short roles and internships, and invisible to the
+# pattern above because that one requires a year on the left-hand side.
+SHARED_YEAR_RANGE_RE = re.compile(
+    r"\b(?P<m1>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*[-–—]{1,2}\s*"
+    r"(?:(?P<present>present|current|now)|(?P<m2>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*)"
+    r"\s+(?P<y>(?:19|20)\d{2})\b",
+    re.I,
+)
+
+# Lines describing study, not employment. A degree spanning 2022-2026 is four
+# years of being a student; counting it as professional experience credited a
+# final-year undergraduate with 4.9 years and would have cleared a senior role's
+# experience gate.
+EDUCATION_LINE_RE = re.compile(
+    r"\b(university|institute|college|school|academy|polytechnic|"
+    r"b\.?s\.?c?\b|m\.?s\.?c?\b|b\.?tech|m\.?tech|bachelor|master|phd|doctorate|"
+    r"diploma|coursework|gpa|cgpa|matriculation|intermediate)\b",
+    re.I,
+)
+
+# Student societies, clubs and volunteering. Real roles, often genuinely
+# valuable — but not professional experience, and a hard "years of professional
+# experience" gate is the wrong place to count them.
+NON_PROFESSIONAL_LINE_RE = re.compile(
+    r"\b(society|club|chapter|volunteer|volunteering|extracurricular|"
+    r"student\s+(body|council|chapter)|hackathon)\b",
+    re.I,
+)
+
 SECTION_RE = re.compile(
     r"^\s*(technical\s+skills|core\s+skills|skills|technologies|tech\s+stack|competencies)\s*:?\s*$",
     re.I | re.M,
@@ -78,20 +108,37 @@ def heuristic_years(text: str, today: date | None = None) -> float:
     today = today or date.today()
     spans: list[tuple[int, int]] = []
 
-    for m in DATE_RANGE_RE.finditer(text):
-        y1 = m.group("y1")
-        start = int(y1) * 12 + MONTHS.get((m.group("m1") or "").lower()[:3], 1)
+    # Scan line by line so a date range can be judged in context. A bare regex
+    # over the whole document cannot tell a degree from a job.
+    for line in text.splitlines():
+        if EDUCATION_LINE_RE.search(line) or NON_PROFESSIONAL_LINE_RE.search(line):
+            continue
 
-        if m.group("present"):
-            end = today.year * 12 + today.month
-        else:
-            y2, m2 = m.group("y2"), m.group("m2")
-            if not y2:
-                continue
-            end = int(y2) * 12 + MONTHS.get((m2 or "").lower()[:3], 12)
+        for m in DATE_RANGE_RE.finditer(line):
+            y1 = m.group("y1")
+            start = int(y1) * 12 + MONTHS.get((m.group("m1") or "").lower()[:3], 1)
 
-        if end > start:
-            spans.append((start, end))
+            if m.group("present"):
+                end = today.year * 12 + today.month
+            else:
+                y2, m2 = m.group("y2"), m.group("m2")
+                if not y2:
+                    continue
+                end = int(y2) * 12 + MONTHS.get((m2 or "").lower()[:3], 12)
+
+            if end > start:
+                spans.append((start, end))
+
+        # "Jun - Aug 2024": both months share the trailing year.
+        for m in SHARED_YEAR_RANGE_RE.finditer(line):
+            year = int(m.group("y"))
+            start = year * 12 + MONTHS.get(m.group("m1").lower()[:3], 1)
+            if m.group("present"):
+                end = today.year * 12 + today.month
+            else:
+                end = year * 12 + MONTHS.get(m.group("m2").lower()[:3], 12)
+            if end > start:
+                spans.append((start, end))
 
     if not spans:
         return 0.0

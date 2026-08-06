@@ -9,6 +9,10 @@ CLAUDE.md
 PLAN.md
 NOTES.md
 
+# Real CVs from real people. The sample set in data/resumes/ is synthetic and
+# safe to publish; anything dropped here is not. Never commit this folder.
+data/private/
+
 # Third-party material: the project brief belongs to Mercurial Minds
 docs/brief/
 

@@ -25,9 +25,23 @@ TITLE_RE = re.compile(r"\b(?:Mr|Mrs|Ms|Mx|Miss|Sir|Madam)\.?\s+", re.I)
 PRONOUN_RE = re.compile(r"\b(?:he|him|his|she|her|hers)\b", re.I)
 PRONOUN_DECL_RE = re.compile(r"\((?:he|she|they)/(?:him|her|them)[^)]*\)", re.I)
 
-# Age / date of birth
+# Age / date of birth.
+#
+# The word boundary after the alternation is load-bearing. Without it, `age`
+# matched the first three letters of "agentic" and the trailing wildcard ate the
+# rest of the phrase — so "Agentic AI", "Multi-Agent Systems" and "agent
+# orchestration" were deleted from an AI engineer's resume before scoring.
+# Redaction that removes the candidate's most relevant skill does more damage
+# than the bias it is there to prevent.
+#
+# A separator or a digit is also required, so a stray "born" or "age" in prose
+# does not swallow the line it sits on.
 DOB_RE = re.compile(
-    r"\b(?:date\s+of\s+birth|d\.?o\.?b\.?|born|age)\s*[:\-]?\s*[^\n,;]{1,32}", re.I
+    r"\b(?:date\s+of\s+birth|d\.o\.b\.?|dob|age|born)\b\s*[:\-]\s*[^\n,;]{1,32}"
+    r"|\b(?:date\s+of\s+birth|d\.o\.b\.?|dob)\b\s+\d[^\n,;]{0,30}"
+    r"|\bborn\s+(?:on\s+|in\s+)?\d[^\n,;]{0,30}"
+    r"|\bage\s+\d{1,2}\b",
+    re.I,
 )
 
 # Single-line demographic declarations common on South Asian / EU CVs
@@ -120,7 +134,16 @@ def guess_name_tokens(text: str) -> list[str]:
             return []
         if any(w.lower().strip(".") in _NAME_STOPWORDS for w in words):
             return []
-        if all(re.fullmatch(r"[A-Z][a-z'.-]{1,}|[A-Z]\.", w) for w in words):
+
+        # Two conventions, both common: "Amara Okonkwo" and the all-caps header
+        # "AMARA OKONKWO". Missing the second one leaves the name unredacted in
+        # the text the scorer sees, which is the failure this whole module
+        # exists to prevent.
+        title_case = r"[A-Z][a-z'.-]{1,}|[A-Z]\."
+        all_caps = r"[A-Z][A-Z'.-]{1,}"
+        if all(re.fullmatch(title_case, w) for w in words):
+            return words
+        if all(re.fullmatch(all_caps, w) for w in words):
             return words
         return []
     return []

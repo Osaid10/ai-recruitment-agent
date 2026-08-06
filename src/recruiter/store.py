@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -132,15 +133,30 @@ class ATSStore:
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path))
+
+        # `check_same_thread=False` because Streamlit re-runs the script on a
+        # different worker thread for every interaction, while the agent (and
+        # therefore this connection) is cached across those re-runs. Without it,
+        # the first button click raises ProgrammingError.
+        #
+        # Turning that check off makes thread-safety our problem, so every
+        # statement goes through `self._lock`. Access is serialised rather than
+        # concurrent, which is the right trade for an ATS: writes are small and
+        # a recruiter dashboard has no throughput requirement worth the risk of
+        # interleaved transactions.
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(SCHEMA)
-        self._conn.commit()
+        self._lock = threading.RLock()
+
+        with self._lock:
+            self._conn.executescript(SCHEMA)
+            self._conn.commit()
 
     # -- lifecycle --------------------------------------------------------
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def __enter__(self) -> "ATSStore":
         return self
@@ -150,12 +166,24 @@ class ATSStore:
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        try:
-            yield self._conn
-            self._conn.commit()
-        except Exception:
-            self._conn.rollback()
-            raise
+        """Serialised write transaction. Holds the lock so a rollback can never
+        race another thread's statements on the same connection."""
+        with self._lock:
+            try:
+                yield self._conn
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def _query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+        """Serialised read. Reads share the connection, so they take the lock too."""
+        with self._lock:
+            return self._conn.execute(sql, params).fetchall()
+
+    def _query_one(self, sql: str, params: tuple = ()) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(sql, params).fetchone()
 
     # -- jobs -------------------------------------------------------------
 
@@ -167,11 +195,11 @@ class ATSStore:
             )
 
     def get_job(self, job_id: str) -> JobRequisition | None:
-        row = self._conn.execute("SELECT payload FROM jobs WHERE id=?", (job_id,)).fetchone()
+        row = self._query_one("SELECT payload FROM jobs WHERE id=?", (job_id,))
         return JobRequisition.model_validate_json(row["payload"]) if row else None
 
     def list_jobs(self) -> list[JobRequisition]:
-        rows = self._conn.execute("SELECT payload FROM jobs ORDER BY created_at DESC").fetchall()
+        rows = self._query("SELECT payload FROM jobs ORDER BY created_at DESC")
         return [JobRequisition.model_validate_json(r["payload"]) for r in rows]
 
     # -- candidates -------------------------------------------------------
@@ -194,22 +222,22 @@ class ATSStore:
             )
 
     def get_candidate(self, candidate_id: str) -> Candidate | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM candidates WHERE id=?", (candidate_id,)
-        ).fetchone()
+        )
         return Candidate.model_validate_json(row["payload"]) if row else None
 
     def list_candidates(self, job_id: str) -> list[Candidate]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM candidates WHERE job_id=? ORDER BY created_at", (job_id,)
-        ).fetchall()
+        )
         return [Candidate.model_validate_json(r["payload"]) for r in rows]
 
     def find_candidate_by_source(self, job_id: str, source_file: str) -> Candidate | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM candidates WHERE job_id=? AND source_file=?",
             (job_id, source_file),
-        ).fetchone()
+        )
         return Candidate.model_validate_json(row["payload"]) if row else None
 
     # -- scores & shortlist ----------------------------------------------
@@ -231,16 +259,16 @@ class ATSStore:
             )
 
     def get_score(self, candidate_id: str, job_id: str) -> CandidateScore | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM scores WHERE candidate_id=? AND job_id=?",
             (candidate_id, job_id),
-        ).fetchone()
+        )
         return CandidateScore.model_validate_json(row["payload"]) if row else None
 
     def list_scores(self, job_id: str) -> list[CandidateScore]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM scores WHERE job_id=? ORDER BY total_score DESC", (job_id,)
-        ).fetchall()
+        )
         return [CandidateScore.model_validate_json(r["payload"]) for r in rows]
 
     def save_shortlist(self, shortlist: Shortlist) -> None:
@@ -258,9 +286,9 @@ class ATSStore:
             )
 
     def get_shortlist(self, job_id: str) -> Shortlist | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM shortlists WHERE job_id=?", (job_id,)
-        ).fetchone()
+        )
         return Shortlist.model_validate_json(row["payload"]) if row else None
 
     # -- interviews -------------------------------------------------------
@@ -283,22 +311,22 @@ class ATSStore:
             )
 
     def get_interview(self, interview_id: str) -> InterviewBooking | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM interviews WHERE id=?", (interview_id,)
-        ).fetchone()
+        )
         return InterviewBooking.model_validate_json(row["payload"]) if row else None
 
     def list_interviews(self, job_id: str) -> list[InterviewBooking]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM interviews WHERE job_id=? ORDER BY starts_at", (job_id,)
-        ).fetchall()
+        )
         return [InterviewBooking.model_validate_json(r["payload"]) for r in rows]
 
     def interviews_for_candidate(self, candidate_id: str) -> list[InterviewBooking]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM interviews WHERE candidate_id=? ORDER BY starts_at",
             (candidate_id,),
-        ).fetchall()
+        )
         return [InterviewBooking.model_validate_json(r["payload"]) for r in rows]
 
     # -- questions / summaries / recommendations --------------------------
@@ -312,10 +340,10 @@ class ATSStore:
             )
 
     def get_questions(self, candidate_id: str, job_id: str) -> QuestionSet | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM question_sets WHERE candidate_id=? AND job_id=?",
             (candidate_id, job_id),
-        ).fetchone()
+        )
         return QuestionSet.model_validate_json(row["payload"]) if row else None
 
     def save_summary(self, summary: InterviewSummary) -> None:
@@ -332,17 +360,17 @@ class ATSStore:
             )
 
     def get_summary(self, candidate_id: str, interview_id: str) -> InterviewSummary | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM summaries WHERE candidate_id=? AND interview_id=?",
             (candidate_id, interview_id),
-        ).fetchone()
+        )
         return InterviewSummary.model_validate_json(row["payload"]) if row else None
 
     def list_summaries(self, candidate_id: str) -> list[InterviewSummary]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM summaries WHERE candidate_id=? ORDER BY created_at",
             (candidate_id,),
-        ).fetchall()
+        )
         return [InterviewSummary.model_validate_json(r["payload"]) for r in rows]
 
     def save_recommendation(self, rec: Recommendation) -> None:
@@ -360,17 +388,17 @@ class ATSStore:
             )
 
     def get_recommendation(self, candidate_id: str, job_id: str) -> Recommendation | None:
-        row = self._conn.execute(
+        row = self._query_one(
             "SELECT payload FROM recommendations WHERE candidate_id=? AND job_id=?",
             (candidate_id, job_id),
-        ).fetchone()
+        )
         return Recommendation.model_validate_json(row["payload"]) if row else None
 
     def list_recommendations(self, job_id: str) -> list[Recommendation]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM recommendations WHERE job_id=? ORDER BY created_at",
             (job_id,),
-        ).fetchall()
+        )
         return [Recommendation.model_validate_json(r["payload"]) for r in rows]
 
     # -- human decisions (the gates) --------------------------------------
@@ -393,16 +421,16 @@ class ATSStore:
             )
 
     def list_decisions(self, job_id: str) -> list[HumanDecision]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM decisions WHERE job_id=? ORDER BY decided_at", (job_id,)
-        ).fetchall()
+        )
         return [HumanDecision.model_validate_json(r["payload"]) for r in rows]
 
     def decisions_for_candidate(self, candidate_id: str) -> list[HumanDecision]:
-        rows = self._conn.execute(
+        rows = self._query(
             "SELECT payload FROM decisions WHERE candidate_id=? ORDER BY decided_at",
             (candidate_id,),
-        ).fetchall()
+        )
         return [HumanDecision.model_validate_json(r["payload"]) for r in rows]
 
     # -- audit ------------------------------------------------------------
@@ -430,15 +458,15 @@ class ATSStore:
 
     def audit_trail(self, entity_id: str = "", job_id: str = "") -> list[dict]:
         if entity_id:
-            rows = self._conn.execute(
+            rows = self._query(
                 "SELECT * FROM audit WHERE entity_id=? ORDER BY id", (entity_id,)
-            ).fetchall()
+            )
         elif job_id:
-            rows = self._conn.execute(
+            rows = self._query(
                 "SELECT * FROM audit WHERE job_id=? ORDER BY id", (job_id,)
-            ).fetchall()
+            )
         else:
-            rows = self._conn.execute("SELECT * FROM audit ORDER BY id").fetchall()
+            rows = self._query("SELECT * FROM audit ORDER BY id")
 
         out = []
         for r in rows:

@@ -1,0 +1,43 @@
+{
+  "id": "job_aigrad",
+  "title": "AI/ML Engineer (Graduate)",
+  "department": "Applied AI",
+  "location": "Islamabad, Pakistan (hybrid)",
+  "employment_type": "Full-time",
+  "summary": "Build and ship LLM-backed products. You will take features from a notebook to something users depend on, and own them afterwards. This role is open to recent graduates and career changers with demonstrable project work; we care what you have built, not how long you have been employed.",
+  "responsibilities": [
+    "Build LLM-backed features end to end, from prototype to a service other teams call.",
+    "Design retrieval pipelines and evaluate them against real queries, not vibes.",
+    "Wrap models behind clean APIs and keep them running once they are live.",
+    "Write the evaluation harness before you tune the prompt.",
+    "Explain a model's failure modes to people who will not read the code."
+  ],
+  "_note_on_min_years": "Deliberately 0. This role is open to graduates, so gating on years of paid employment would contradict the summary above and screen out exactly the people it is meant to attract. Depth is assessed by the rubric, which weights demonstrated impact (0.30) above tenure (0.20).",
+  "must_haves": [
+    { "skill": "Python", "min_years": 0, "weight": 2.0 },
+    { "skill": "Machine Learning", "min_years": 0, "weight": 1.5 },
+    { "skill": "REST", "min_years": 0, "weight": 1.0 }
+  ],
+  "nice_to_haves": [
+    { "skill": "LangChain", "weight": 1.0 },
+    { "skill": "FastAPI", "weight": 1.0 },
+    { "skill": "Docker", "weight": 1.0 },
+    { "skill": "PyTorch", "weight": 1.0 },
+    { "skill": "SQL", "weight": 0.5 },
+    { "skill": "AWS", "weight": 0.5 }
+  ],
+  "min_years_experience": 0,
+  "rubric": {
+    "skills": 0.35,
+    "experience": 0.2,
+    "impact": 0.3,
+    "communication": 0.15
+  },
+  "shortlist_size": 3,
+  "shortlist_threshold": 55.0,
+  "interview_minutes": 45,
+  "interview_panel": [
+    { "name": "Ayesha Raza", "email": "ayesha.raza@example.com", "role": "Engineering Manager" },
+    { "name": "Daniyal Ahmed", "email": "daniyal.ahmed@example.com", "role": "Staff Engineer" }
+  ]
+}
