@@ -13,6 +13,7 @@ moves forward.
 from __future__ import annotations
 
 import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -23,6 +24,7 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from recruiter.config import Settings  # noqa: E402
+from recruiter.ingest.parser import SUPPORTED_SUFFIXES  # noqa: E402
 from recruiter.models import HumanAction, Rating, RunReport, StageStatus  # noqa: E402
 from recruiter.pipeline import JobSpecError, RecruitmentAgent, load_job  # noqa: E402
 from recruiter.recommend import record_decision, shortlist_is_approved  # noqa: E402
@@ -111,6 +113,18 @@ transcript_dir = st.sidebar.text_input(
     "Transcript folder (optional)", value=str(ROOT / "data" / "interviews")
 )
 
+uploads = st.sidebar.file_uploader(
+    "…or drop resumes in",
+    type=[s.lstrip(".") for s in sorted(SUPPORTED_SUFFIXES)],
+    accept_multiple_files=True,
+    help=(
+        "Uploaded files are ranked instead of the folder above. They are written "
+        "to a temporary directory that is deleted when the run finishes; the "
+        "resume text itself is persisted to the ATS store exactly as a folder "
+        "run would persist it."
+    ),
+)
+
 if st.sidebar.button("Ingest and rank", type="primary", width="stretch"):
     if not job_choice:
         st.sidebar.error("No job requisition found in data/jobs/")
@@ -119,7 +133,18 @@ if st.sidebar.button("Ingest and rank", type="primary", width="stretch"):
             job = agent.register_job(load_job(job_choice))
             report = RunReport(job_id=job.id)
             with st.spinner("Reading resumes and ranking…"):
-                agent.ingest(job, resume_dir, report)
+                if uploads:
+                    # Uploads arrive as in-memory buffers, but every downstream
+                    # stage — parser, redaction, audit — is written against real
+                    # paths. Staging them keeps the uploaded path identical to
+                    # the folder path rather than forking the pipeline.
+                    with tempfile.TemporaryDirectory(prefix="ra_upload_") as staged:
+                        for upload in uploads:
+                            name = Path(upload.name).name  # ignore any client path
+                            (Path(staged) / name).write_bytes(upload.getvalue())
+                        agent.ingest(job, staged, report)
+                else:
+                    agent.ingest(job, resume_dir, report)
                 agent.rank(job, report)
             st.session_state["report"] = report.model_dump()
             st.session_state["job_id"] = job.id
@@ -138,11 +163,19 @@ if jobs:
         )
 
     jobs = sorted(jobs, key=_progress, reverse=True)
+    job_ids = [j.id for j in jobs]
+
+    # Default to the furthest-along job, except right after a run — then show
+    # the job that was just ranked. Without this the screen silently stays on
+    # another requisition and the run looks like it did nothing.
+    just_ran = st.session_state.get("job_id")
+    default_index = job_ids.index(just_ran) if just_ran in job_ids else 0
+
     job_id = st.sidebar.selectbox(
         "Viewing",
-        [j.id for j in jobs],
+        job_ids,
         format_func=lambda jid: next(j.title for j in jobs if j.id == jid),
-        index=0,
+        index=default_index,
     )
 else:
     job_id = ""

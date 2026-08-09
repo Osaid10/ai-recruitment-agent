@@ -133,6 +133,33 @@ def test_ingest_and_rank_actually_populates_the_store(app_env: Path) -> None:
     store.close()
 
 
+def test_the_view_follows_the_job_that_was_just_ranked(seeded: Path) -> None:
+    """Ranking a second job must move the screen to it.
+
+    The 'Viewing' selector is ordered by how far each job has progressed, so a
+    freshly ranked job sorts last. Before this was fixed the screen stayed on
+    the seeded job and the run looked like it had silently done nothing — the
+    run id was written to session state and then never read.
+    """
+    at = _run()
+    assert at.title[0].value == "Senior Python Engineer"
+
+    # Point the sidebar at the other requisition and rank it.
+    other = next(
+        p for p in sorted((APP.parents[1] / "data" / "jobs").glob("*.json"))
+        if "senior_python" not in p.name
+    )
+    job_picker = at.sidebar.selectbox[0]
+    job_picker.set_value(other).run()
+    [b for b in at.sidebar.button if "Ingest and rank" in b.label][0].click().run()
+    assert not at.exception, at.exception
+
+    assert at.title[0].value != "Senior Python Engineer", (
+        "after ranking a different job the screen stayed on the old one, so the "
+        "run appears to have done nothing"
+    )
+
+
 # -- every tab renders -----------------------------------------------------
 
 
