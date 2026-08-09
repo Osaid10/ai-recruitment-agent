@@ -33,7 +33,7 @@ resumes/ ─▶ 1 INGEST ─▶ 2 RANK ─▶ ⛔ human approves shortlist ─�
 
 | Stage | What it does |
 |---|---|
-| **1 Ingest** | Reads PDF, DOCX, TXT. Extracts name, skills, roles, education, years of experience into a typed record. Flags scans, encrypted files, and unreadable resumes for manual review instead of scoring them zero. |
+| **1 Ingest** | Reads PDF, DOCX, TXT and Markdown. Extracts name, skills, roles, education, years of experience into a typed record. Flags scans, encrypted files, and unreadable resumes for manual review instead of scoring them zero. |
 | **2 Rank** | Scores against the role. Hard requirements are decided by deterministic rules; the LLM judges the fuzzy dimensions from **redacted** text and must quote evidence for every score. |
 | **3 Schedule** | Finds a slot where the whole interview panel is free, books it, and writes a real `.ics` invite you can open in Outlook or Google Calendar. |
 | **4 Questions** | Writes questions specific to *that* candidate — verifying their claims, probing their actual gaps, answering the concerns screening raised. |
@@ -112,6 +112,12 @@ The dashboard:
 streamlit run app/streamlit_app.py
 ```
 
+It shows the ranking with the evidence behind each score, both human gates, the
+interview questions, the recommendations, and the audit trail. You can point it
+at a resume folder or drop files straight onto the sidebar uploader — uploads go
+through the same parser, redaction and audit path as a folder run, so nothing
+arriving that way skips the bias controls.
+
 **It runs without an API key.** The deterministic rubric still ranks the whole
 batch, and every LLM stage reports itself unavailable rather than inventing
 output. You lose the fit assessment, not the pipeline.
@@ -150,10 +156,10 @@ tests/
 ## Testing
 
 ```powershell
-python -m pytest -q      # 46 tests, all green
+python -m pytest -q      # 125 tests, all green
 ```
 
-Three files, each answering a different question:
+Each file answers a different question:
 
 - **`tests/test_fairness.py`** — does ranking condition on anything it shouldn't?
   Identical resumes under paired names (gendered, and names common to different
@@ -164,9 +170,23 @@ Three files, each answering a different question:
   and question generation are blocked until a named human approves, anonymous
   approvals are rejected, and a full run ends with recommendations but zero
   recorded hiring decisions.
-- **`tests/test_scenarios.py`** — the ten scenarios from `PLAN.md`, including the
+- **`tests/test_scenarios.py`** — the ten scenarios from the plan, including the
   text-free PDF, the DOCX, the career gap, the near-empty resume, the malformed
   job spec, the fully booked calendar, and a complete run with no model at all.
+- **`tests/test_evidence.py`** — is every score actually supported? A quote the
+  model invented, or one that cannot be found in the source, must be discarded
+  and its score zeroed rather than trusted.
+- **`tests/test_redaction_precision.py`** — does redaction remove too much? A
+  pattern once ate "Agentic AI" and "Multi-Agent Systems" off an AI engineer's
+  resume, deleting the exact qualification the role asked for.
+- **`tests/test_years_extraction.py`** — degree dates are not work experience, and
+  a three-month internship written "Jun - Aug 2024" still counts as a role.
+- **`tests/test_store_threading.py`** — Streamlit re-runs the script on a different
+  worker thread while the SQLite connection is cached across those re-runs.
+- **`tests/test_dashboard.py`** — drives the real widgets through Streamlit's
+  `AppTest`: every tab against seeded and empty data, an anonymous approval being
+  refused, downstream controls staying blocked until approval, and the view
+  following the job that was just ranked.
 
 The whole suite runs offline, so it passes on a machine with no API key.
 

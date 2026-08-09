@@ -84,11 +84,17 @@ def show_report(report: RunReport) -> None:
 # Sidebar
 # --------------------------------------------------------------------------
 
-agent = get_agent()
-settings = agent.settings
-
+# Write the header before building the agent. Constructing it imports the
+# LangChain stack and takes ~15s on a cold start, and @st.cache_resource means
+# that cost lands on the first visitor. With the header after it the browser
+# showed a blank white page for the whole wait, which reads as a crash rather
+# than as loading.
 st.sidebar.markdown("### AI Recruitment Agent")
 st.sidebar.caption("Screens the top of the funnel. A human decides.")
+
+with st.spinner("Starting the agent…"):
+    agent = get_agent()
+settings = agent.settings
 
 if agent.llm.available:
     st.sidebar.success(f"Model: {agent.model_name}")
