@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -205,7 +206,17 @@ class Candidate(BaseModel):
 
     @property
     def display_name(self) -> str:
-        return self.full_name or f"<unnamed {self.id}>"
+        """A label a reviewer can act on.
+
+        When extraction fails to find a name, the candidate id tells a reviewer
+        nothing — they cannot open "cand_9a64078a". The source filename is the
+        one handle they can actually trace back to the resume on disk.
+        """
+        if self.full_name:
+            return self.full_name
+        if self.source_file:
+            return f"{Path(self.source_file).name} (name not extracted)"
+        return f"<unnamed {self.id}>"
 
 
 # --------------------------------------------------------------------------

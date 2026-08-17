@@ -208,7 +208,23 @@ def build_shortlist(scores: list[CandidateScore], job: JobRequisition) -> Shortl
     A candidate who fails a hard gate is never shortlisted, however well they
     score elsewhere. A candidate who passes every gate but lands just under the
     threshold is flagged for human review rather than quietly dropped.
+
+    A candidate the model could not assess is held out entirely when the rest of
+    the batch *was* assessed — see below.
     """
+    # Two scoring paths produce numbers on different scales. An assessed
+    # candidate is blended down by their fit score (0.55*gates + 0.45*fit); an
+    # unassessed one keeps their full gate score. So a resume the model choked
+    # on scores *higher* than one it read properly — a real CV that failed
+    # extraction came out at 100.0 and outranked a genuine 84.2.
+    #
+    # Ranking them against each other is not meaningful, so when a batch is
+    # mixed the unassessed are held out for a human instead. When nothing was
+    # assessed (no API key at all) every candidate is on the same rules-only
+    # scale and comparing them is fine — that path is unchanged.
+    assessed = [s for s in scores if s.llm_available]
+    mixed_batch = bool(assessed) and len(assessed) < len(scores)
+
     ranked = sorted(scores, key=lambda s: (s.all_gates_met, s.total_score), reverse=True)
 
     shortlisted: list[CandidateScore] = []
@@ -224,6 +240,19 @@ def build_shortlist(scores: list[CandidateScore], job: JobRequisition) -> Shortl
             # reads as "has no Python" when the real reason is the years minimum.
             score.reason = "does not meet - " + "; ".join(
                 g.detail or g.requirement for g in score.hard_gates if not g.met
+            )
+            cut.append(score)
+        elif mixed_batch and not score.llm_available:
+            score.shortlisted = False
+            score.reason = (
+                "could not be assessed — the model failed on this resume, so only "
+                "the rule-based checks ran. The score is not comparable with the "
+                "candidates that were assessed, so this one is not ranked against "
+                "them. Needs a human to review the resume directly."
+            )
+            score.flags.append(
+                "needs human: assessment incomplete — held out of the ranking "
+                "rather than ranked on a partial score"
             )
             cut.append(score)
         elif score.total_score < job.shortlist_threshold:

@@ -12,8 +12,18 @@ from pathlib import Path
 import pytest
 
 from recruiter.ingest.parser import parse_resume
-from recruiter.models import JobRequisition, RunReport, Stage, StageStatus, TimeSlot
+from recruiter.models import (
+    Candidate,
+    CandidateScore,
+    HardGate,
+    JobRequisition,
+    RunReport,
+    Stage,
+    StageStatus,
+    TimeSlot,
+)
 from recruiter.pipeline import JobSpecError, RecruitmentAgent, load_job
+from recruiter.rank.ranker import build_shortlist
 from recruiter.recommend import ApprovalRequired, require_shortlist_approval
 from recruiter.schedule.calendar import NoSlotAvailable, find_slot
 
@@ -307,3 +317,74 @@ def test_the_shipped_job_requisition_is_valid() -> None:
     job = load_job(SAMPLE_JOB)
     assert job.must_haves and job.interview_panel
     assert abs(sum(job.rubric.as_dict().values()) - 1.0) < 1e-9
+
+
+# -- a resume the model could not assess ----------------------------------
+
+
+def _score(cid: str, *, gate: float, fit: float, assessed: bool) -> CandidateScore:
+    """A score as ranker.score_candidate would have produced it."""
+    total = (0.55 * gate + 0.45 * fit) if assessed else gate
+    return CandidateScore(
+        candidate_id=cid,
+        job_id="job_x",
+        hard_gates=[HardGate(requirement="Python", met=True, detail="found")],
+        gate_score=gate,
+        fit_score=fit,
+        total_score=round(total, 1),
+        llm_available=assessed,
+    )
+
+
+def test_an_unassessed_candidate_never_outranks_an_assessed_one() -> None:
+    """The bug a real CV hit through the dashboard.
+
+    The model failed to return structured output for one resume, so that
+    candidate kept their full gate score (100.0) while everyone the model did
+    read was blended down by their fit score. The unassessed resume came out top
+    of the shortlist at 100.0, above a genuine 84.2 — the least-analysed
+    candidate ranked highest.
+    """
+    job = load_job(SAMPLE_JOB)
+    good = _score("cand_assessed", gate=92.5, fit=74.0, assessed=True)
+    broken = _score("cand_failed", gate=100.0, fit=0.0, assessed=False)
+
+    assert broken.total_score > good.total_score, "precondition: the raw scores do invert"
+
+    shortlist = build_shortlist([good, broken], job)
+
+    ids = [s.candidate_id for s in shortlist.ranked]
+    assert "cand_failed" not in ids, (
+        "a candidate the model could not assess was ranked against candidates it "
+        "did assess, on an incompatible scale"
+    )
+    assert "cand_assessed" in ids
+
+    held = next(s for s in shortlist.cut if s.candidate_id == "cand_failed")
+    assert "could not be assessed" in held.reason
+    assert any("needs human" in f for f in held.flags)
+
+
+def test_a_batch_with_no_model_at_all_still_ranks_normally() -> None:
+    """The no-API-key path must not be caught by the mixed-batch rule.
+
+    With nothing assessed, every candidate is on the same rules-only scale, so
+    comparing them is meaningful and the whole batch should still rank.
+    """
+    job = load_job(SAMPLE_JOB)
+    a = _score("cand_a", gate=90.0, fit=0.0, assessed=False)
+    b = _score("cand_b", gate=70.0, fit=0.0, assessed=False)
+
+    shortlist = build_shortlist([a, b], job)
+
+    assert [s.candidate_id for s in shortlist.ranked] == ["cand_a", "cand_b"]
+    assert not shortlist.cut
+
+
+def test_an_unnamed_candidate_shows_its_filename_not_its_id() -> None:
+    """`cand_9a64078a` tells a reviewer nothing they can act on."""
+    unnamed = Candidate(job_id="job_x", full_name="", source_file="/tmp/up/resume.pdf")
+    assert unnamed.display_name == "resume.pdf (name not extracted)"
+
+    named = Candidate(job_id="job_x", full_name="Ada Lovelace", source_file="/tmp/a.pdf")
+    assert named.display_name == "Ada Lovelace"
