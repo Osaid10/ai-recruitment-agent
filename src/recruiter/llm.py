@@ -8,6 +8,7 @@ pipeline must still produce a ranked shortlist with no model at all.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -50,6 +51,39 @@ def _retry_after(exc: Exception) -> float | None:
 def _is_rate_limit(exc: Exception) -> bool:
     text = str(exc).lower()
     return "rate_limit" in text or "429" in text
+
+
+def _is_tool_use_failure(exc: Exception) -> bool:
+    """The model broke the function-call format instead of hitting a real error.
+
+    Groq's tool calling for Llama is a text convention — the model is asked to
+    write a `<function=Name>{...}` block, and nothing constrains it to do so. On
+    a resume whose text layer is scrambled (multi-column PDFs collapse fields
+    into each other) it can drop the format and simply continue transcribing the
+    document, and the API rejects that with a 400.
+
+    Worth separating from a transient failure: this one is a property of the
+    prompt, so at our temperature it reproduces exactly. Retrying is pointless.
+    """
+    text = str(exc).lower()
+    return "tool_use_failed" in text or "failed to call a function" in text
+
+
+_JSON_SPAN_RE = re.compile(r"\{.*\}", re.S)
+
+
+def _extract_json(raw: str) -> str:
+    """Pull the JSON object out of a text reply.
+
+    Models wrap JSON in ``` fences or prepend a sentence even when told not to,
+    so take the outermost brace-delimited span rather than trusting the whole
+    reply to parse.
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S).strip()
+    match = _JSON_SPAN_RE.search(text)
+    return match.group(0) if match else text
 
 
 def _is_daily_quota(exc: Exception) -> bool:
@@ -199,6 +233,17 @@ class LLMClient:
                     raise LLMUnavailable(
                         f"daily token quota exhausted: {self._brief(exc)}"
                     ) from exc
+                if _is_tool_use_failure(exc):
+                    # Not transient: the prompt is identical each time and the
+                    # temperature is low, so this reproduces exactly — one real
+                    # resume produced four byte-identical failures, twice over.
+                    # The tool-calling wrapper is the fragile part, not the
+                    # model, so ask for the same schema as plain JSON instead.
+                    log.warning(
+                        "tool-call format failed for %s; retrying in JSON mode",
+                        schema.__name__,
+                    )
+                    return self._structured_via_json(schema, system, user, exc)
                 log.warning(
                     "LLM structured call failed (attempt %d/%d): %s",
                     attempt,
@@ -211,6 +256,50 @@ class LLMClient:
         raise LLMUnavailable(
             f"{schema.__name__} call failed after {attempts} attempts: {self._brief(last_error)}"
         ) from last_error
+
+    def _structured_via_json(
+        self,
+        schema: type[T],
+        system: str,
+        user: str,
+        cause: Exception,
+    ) -> T:
+        """Same schema, asked for as plain JSON rather than a tool call.
+
+        `with_structured_output` goes through Groq's function-calling wrapper,
+        which is where the failure happens. A normal completion asked to emit
+        JSON does not touch that machinery at all, and the model is perfectly
+        capable of the JSON itself — so this recovers most resumes that break
+        the tool-call path.
+
+        Still raises `LLMUnavailable` if it cannot manage valid JSON either, so
+        callers keep their existing deterministic fallback.
+        """
+        contract = json.dumps(schema.model_json_schema())
+        json_system = (
+            f"{system}\n\n"
+            "Reply with a single JSON object and nothing else — no prose, no "
+            "explanation, no markdown fences. It must validate against this "
+            f"JSON Schema:\n{contract}"
+        )
+        try:
+            raw = self.text(json_system, user, attempts=2)
+        except LLMUnavailable:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive
+            raise LLMUnavailable(
+                f"{schema.__name__}: tool call failed and the JSON retry also "
+                f"failed: {self._brief(exc)}"
+            ) from exc
+
+        try:
+            return schema.model_validate_json(_extract_json(raw))
+        except Exception as exc:
+            raise LLMUnavailable(
+                f"{schema.__name__}: the model broke the tool-call format "
+                f"({self._brief(cause)}) and the JSON retry did not validate "
+                f"either: {self._brief(exc)}"
+            ) from exc
 
     # -- retry helpers ----------------------------------------------------
 
